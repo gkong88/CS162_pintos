@@ -24,6 +24,9 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+// list of sleeping threads
+struct list sleeping_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleeping_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -89,11 +93,23 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks)
 {
-  int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks)
-    thread_yield ();
+  if (ticks < 1) return; //immediately return if no, or negative weight is desired.
+
+  // create a list entry in the sleeping threads list
+  // linked lists come into play
+  // they are not thread safe
+  enum intr_level previous_level = intr_disable();
+   struct sleeping_thread_list_elem *thread = malloc(sizeof(*thread));
+//   sleeping_thread_init(thread);
+   thread->wake_up_time = timer_ticks() + ticks; //CURRENT TIME + WAIT TIME
+   thread->thread = thread_current();//GET CURRENT THREAD
+   list_push_back (&sleeping_list, &(thread->elem));
+   
+   thread_block(); // puts thread on waiting queue. The timer interrupt now must handle readying it up again
+   intr_set_level(previous_level);
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +188,20 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  struct list_elem *current_elem;
+  struct list_elem *prev_elem;
+  struct sleeping_thread_list_elem *current_thread;
+  current_elem = list_begin(&sleeping_list);
+  while(current_elem != list_end(&sleeping_list)) {
+  // while(0) {
+      current_thread = list_entry(current_elem, struct sleeping_thread_list_elem, elem);
+      prev_elem = current_elem;
+      current_elem = current_elem->next;
+      if (current_thread->wake_up_time <= timer_ticks()) {
+          thread_unblock(current_thread->thread);
+          list_remove(prev_elem);
+      }
+  }  
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

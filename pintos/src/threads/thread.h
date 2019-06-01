@@ -7,6 +7,13 @@
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
 
+struct sleeping_thread_list_elem
+{
+    int64_t wake_up_time; // tick time that thread wants to get woken up
+    struct thread *thread; // thread pointer
+    struct list_elem elem; // list_elem so it can be stored in linked list data structure
+};
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
