@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <kernel/list.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -482,6 +483,26 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
+/* Searches ready_list, a list of threads, for the thread with maximum priority
+ * */
+static struct thread *arg_max_priority(struct list *ready_list) {
+    struct list_elem *current_elem;
+    struct thread *current_thread;
+    struct thread *max_priority_thread;
+    int max_priority = -1;
+
+    current_elem = list_begin(ready_list);
+    while (current_elem != list_end(ready_list)) {
+        current_thread = list_entry(current_elem, struct thread, elem);
+        if (current_thread->priority > max_priority) {
+            max_priority = current_thread->priority;
+            max_priority_thread = current_thread;
+        }
+    }
+    return max_priority_thread;
+}
+
+
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
@@ -493,7 +514,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    return list_entry (arg_max_priority (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
