@@ -498,6 +498,7 @@ static struct thread *arg_max_priority(struct list *ready_list) {
             max_priority = current_thread->priority;
             max_priority_thread = current_thread;
         }
+        current_elem = current_elem->next;
     }
     return max_priority_thread;
 }
