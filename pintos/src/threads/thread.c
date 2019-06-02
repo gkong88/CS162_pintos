@@ -504,7 +504,7 @@ static struct thread *arg_max_priority(struct list *ready_list) {
         current_elem = current_elem->next;
 
     }
-    list_remove();
+    list_remove(max_elem);
     return max_priority_thread;
 }
 
