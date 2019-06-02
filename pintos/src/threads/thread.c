@@ -487,7 +487,9 @@ alloc_frame (struct thread *t, size_t size)
  * */
 static struct thread *arg_max_priority(struct list *ready_list) {
     struct list_elem *current_elem;
+
     struct thread *current_thread;
+    struct list_elem *max_elem;
     struct thread *max_priority_thread;
     int max_priority = -1;
 
@@ -495,11 +497,14 @@ static struct thread *arg_max_priority(struct list *ready_list) {
     while (current_elem != list_end(ready_list)) {
         current_thread = list_entry(current_elem, struct thread, elem);
         if (current_thread->priority > max_priority) {
+            max_elem = current_elem;
             max_priority = current_thread->priority;
             max_priority_thread = current_thread;
         }
         current_elem = current_elem->next;
+
     }
+    list_remove();
     return max_priority_thread;
 }
 
