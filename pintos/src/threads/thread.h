@@ -99,6 +99,10 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 
+    int effective_priority;             /* Effective  Priority. */
+    struct list priority_holding;       /* Locks  this thread is holding. */
+    struct lock *priority_waiting;       /* Lock  this thread is waiting on */
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
