@@ -12,6 +12,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "interrupt.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -332,18 +334,47 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+/* Searches ready_list, a list of threads, for the thread with maximum priority
+ * */
+int get_max_priority(struct list *ready_list) {
+    struct list_elem *current_elem;
+
+    struct thread *current_thread;
+    struct list_elem *max_elem;
+    struct thread *max_priority_thread;
+    int max_priority = 0;
+
+    current_elem = list_begin(ready_list);
+    while (current_elem != list_end(ready_list)) {
+        current_thread = list_entry(current_elem, struct thread, elem);
+        if (current_thread->effective_priority > max_priority) {
+            max_elem = current_elem;
+            max_priority = current_thread->effective_priority;
+        }
+        current_elem = current_elem->next;
+    }
+    return max_priority;
+}
+
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
+  if (new_priority > thread_current () -> effective_priority) {
+      thread_current () -> effective_priority = new_priority; // propagate to effective_priority as necessary
+  }
+  if (get_max_priority(&ready_list) > thread_current () -> effective_priority) {
+    thread_yield();
+  }
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void)
 {
-  return thread_current ()->priority;
+  return thread_current ()->effective_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -463,6 +494,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->effective_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -483,9 +515,9 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
-/* Searches ready_list, a list of threads, for the thread with maximum priority
+/* Searches list, a list of threads, for the thread with maximum priority
  * */
-static struct thread *arg_max_priority(struct list *ready_list) {
+struct thread *pop_max_priority(struct list *thread_list) {
     struct list_elem *current_elem;
 
     struct thread *current_thread;
@@ -493,20 +525,20 @@ static struct thread *arg_max_priority(struct list *ready_list) {
     struct thread *max_priority_thread;
     int max_priority = -1;
 
-    current_elem = list_begin(ready_list);
-    while (current_elem != list_end(ready_list)) {
-        current_thread = list_entry(current_elem, struct thread, elem);
-        if (current_thread->priority > max_priority) {
+    current_elem = list_begin(thread_list);
+    while (current_elem != list_end(thread_list)) {
+        current_thread = list_entry(current_elem, struct thread, elem); // what you get is a pointer to the wrapping structure of elem
+        if (current_thread->effective_priority > max_priority) {
             max_elem = current_elem;
-            max_priority = current_thread->priority;
+            max_priority = current_thread->effective_priority;
             max_priority_thread = current_thread;
         }
         current_elem = current_elem->next;
-
     }
     list_remove(max_elem);
     return max_priority_thread;
 }
+
 
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -514,13 +546,13 @@ static struct thread *arg_max_priority(struct list *ready_list) {
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
-static struct thread *
+struct thread *
 next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return arg_max_priority (&ready_list);
+    return pop_max_priority (&ready_list);
 }
 
 /* Completes a thread switch by activating the new thread's page
