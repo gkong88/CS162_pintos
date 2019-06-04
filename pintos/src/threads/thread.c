@@ -74,6 +74,39 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/*
+ * Returns max effective priority of all threads that depend on
+ * the locks this thread owns
+ */
+int thread_get_children_priority() {
+    struct list_elem *current_lock_elem;
+    struct list_elem *current_thread_elem;
+    struct lock *owned_lock;
+    struct thread *dependent_thread;
+    int max_priority;
+    enum intr_level old_level;
+
+    old_level = intr_disable ();
+
+    max_priority = 0;
+    current_lock_elem = list_begin(&(thread_current()->priority_holding));
+    while(current_lock_elem != list_end(&(thread_current()->priority_holding))) {
+        owned_lock = list_entry(current_lock_elem, struct lock, elem);
+        current_thread_elem = list_begin(&((owned_lock->semaphore).waiters));
+        while (current_thread_elem != list_end(&((owned_lock->semaphore).waiters))) {
+            dependent_thread = list_entry(current_thread_elem, struct thread, elem);
+            if (dependent_thread->effective_priority > max_priority) {
+                max_priority = dependent_thread->effective_priority;
+            }
+            current_thread_elem = current_thread_elem->next;
+        }
+        current_lock_elem = current_lock_elem->next;
+    }
+    intr_set_level (old_level);
+    return max_priority;
+}
+
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -104,7 +137,7 @@ thread_init (void)
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
-   Also creates the idle thread. */
+   Also creates the idle thread. */ 
 void
 thread_start (void)
 {
@@ -203,6 +236,9 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  if (priority > thread_current()->effective_priority) {
+    thread_yield();
+  }
 
   return tid;
 }
@@ -336,19 +372,16 @@ thread_foreach (thread_action_func *func, void *aux)
 
 /* Searches ready_list, a list of threads, for the thread with maximum priority
  * */
-int get_max_priority(struct list *ready_list) {
+int get_max_priority() {
     struct list_elem *current_elem;
 
     struct thread *current_thread;
-    struct list_elem *max_elem;
-    struct thread *max_priority_thread;
     int max_priority = 0;
 
-    current_elem = list_begin(ready_list);
-    while (current_elem != list_end(ready_list)) {
+    current_elem = list_begin(&ready_list);
+    while (current_elem != list_end(&ready_list)) {
         current_thread = list_entry(current_elem, struct thread, elem);
         if (current_thread->effective_priority > max_priority) {
-            max_elem = current_elem;
             max_priority = current_thread->effective_priority;
         }
         current_elem = current_elem->next;
@@ -361,11 +394,21 @@ int get_max_priority(struct list *ready_list) {
 void
 thread_set_priority (int new_priority)
 {
+  enum intr_level old_level;
+  int children_priority;
+
+  old_level = intr_disable ();
+  intr_set_level (old_level);
   thread_current ()->priority = new_priority;
-  if (new_priority > thread_current () -> effective_priority) {
-      thread_current () -> effective_priority = new_priority; // propagate to effective_priority as necessary
+  children_priority = thread_get_children_priority();
+  if (thread_current() -> priority > children_priority) {
+      thread_current() ->effective_priority = thread_current() -> priority;
   }
-  if (get_max_priority(&ready_list) > thread_current () -> effective_priority) {
+  else {
+      thread_current() ->effective_priority = children_priority;
+  }
+  intr_set_level (old_level);
+  if (get_max_priority() > thread_current () -> effective_priority) {
     thread_yield();
   }
 }
@@ -495,6 +538,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->effective_priority = priority;
+  list_init(&(t->priority_holding));
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -611,7 +655,7 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void)
 {
-  struct thread *cur = running_thread ();
+  struct thread *cur = running_thread (); 
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 

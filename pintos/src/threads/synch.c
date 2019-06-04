@@ -35,39 +35,13 @@
 #include "synch.h"
 
 
-/*
- * Returns max effective priority of all threads that depend on
- * the locks this thread owns
- */
-int thread_get_children_priority() {
-    struct list_elem *current_lock_elem;
-    struct list_elem *current_thread_elem;
-    struct lock *owned_lock;
-    struct thread *dependent_thread;
 
-    int max_priority ;
-
-    max_priority = 0;
-    current_lock_elem = list_begin(&(thread_current()->priority_holding));
-    while(current_lock_elem != list_end(&(thread_current()->priority_holding))) {
-        owned_lock = list_entry(current_lock_elem, struct lock, elem);
-        current_thread_elem = list_begin(&((owned_lock->semaphore).waiters));
-        while (current_thread_elem != list_end(&((owned_lock->semaphore).waiters))) {
-            dependent_thread = list_entry(current_thread_elem, struct lock, elem);
-            if (dependent_thread->effective_priority > max_priority) {
-                max_priority = dependent_thread->effective_priority;
-            }
-            current_thread_elem = current_thread_elem->next;
-        }
-        current_lock_elem = current_lock_elem->next;
-    }
-    return max_priority;
-}
 
 /*
  *
  */
 void thread_donate_priority(struct thread* thread_recipient, int donated_priority) {
+    
     if (thread_recipient->effective_priority < donated_priority) {
         thread_recipient->effective_priority = donated_priority;
         if (!(thread_recipient->priority_waiting == NULL)) {
@@ -153,14 +127,22 @@ void
 sema_up (struct semaphore *sema)
 {
   enum intr_level old_level;
+  struct thread *unblocked_thread;
 
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters))
-    thread_unblock (pop_max_priority(&sema->waiters));
+  if (!list_empty (&(sema->waiters))) {
+    unblocked_thread = pop_max_priority(&(sema->waiters));
+    thread_unblock (unblocked_thread);
+  }
+    
+    //thread_unblock (unblocked_thread);
   sema->value++;
   intr_set_level (old_level);
+  if (unblocked_thread->effective_priority > thread_current()->effective_priority) {
+    thread_yield();
+  }
 }
 
 static void sema_test_helper (void *sema_);
@@ -221,7 +203,6 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  lock->holder_starting_priority = NULL;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -281,12 +262,15 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock)
 {
-    int children_priority;
+    int children_priority; 
+    enum intr_level old_level;
+
+    old_level = intr_disable ();
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
-  list_remove(&(lock->elem);
+  list_remove(&(lock->elem));
   sema_up (&lock->semaphore);
   children_priority = thread_get_children_priority();
   if (thread_current() -> priority > children_priority) {
@@ -295,7 +279,10 @@ lock_release (struct lock *lock)
   else {
       thread_current() ->effective_priority = children_priority;
   }
-//    thread_donate_priority(thread_current(), 0); //update the thread you were waiting on to reduce their priority
+intr_set_level(old_level);
+if (thread_current()->effective_priority < get_max_priority()) {
+  thread_yield();
+}
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -323,7 +310,7 @@ struct semaphore_elem
 
 /* Searches list, a list of threads, for the thread with maximum priority
  * */
-struct thread *pop_max_priority_waiter(struct list *sema_list) {
+struct semaphore *pop_max_priority_waiter(struct list *sema_list) {
     struct list_elem *current_elem;
     struct list_elem *max_elem;
     struct semaphore current_semaphore;
@@ -422,8 +409,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 // semaphores have a list of waiting threads
 //
   if (!list_empty (&cond->waiters))
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+    sema_up (pop_max_priority_waiter (&cond->waiters));
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

@@ -122,6 +122,7 @@ extern bool thread_mlfqs;
 
 void thread_init (void);
 void thread_start (void);
+int get_max_priority(void);
 
 void thread_tick (void);
 void thread_print_stats (void);
@@ -145,6 +146,8 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+
+int thread_get_children_priority(void);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
